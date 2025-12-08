@@ -36,18 +36,12 @@ export async function threadRoutes(fastify: FastifyInstance) {
 			}
 
 			const data = parsed.data;
-			const userId = request.userId;
-			if (!userId) {
-				return reply
-					.status(401)
-					.send({ error: "Unauthorized", success: false });
-			}
 
 			type NewThread = typeof threadsTable.$inferInsert;
 			const toInsert: NewThread = {
 				topicId: data.topicId,
 				threadTitle: data.threadTitle,
-				createdBy: userId,
+				createdBy: userid,
 				viewCount: 0,
 			};
 			try {

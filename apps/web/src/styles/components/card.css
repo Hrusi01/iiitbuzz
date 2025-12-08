@@ -20,7 +20,7 @@
 }
 
 .neo-brutal-card-blue {
-	background-color: #4281ff;
+	background-color: var(--brutal-blue);
 }
 
 .light .neo-brutal-card {
