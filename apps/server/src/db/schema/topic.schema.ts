@@ -11,12 +11,14 @@ import { users } from "./user.schema";
 export const topics = pgTable(
 	"topic",
 	{
-		id: uuid("id").primaryKey().notNull().unique(),
+		id: uuid("id").primaryKey().notNull().unique().defaultRandom(),
 
-		topicName: varchar("topic_name", { length: 255 }),
-		topicDescription: text("topic_description"),
+		topicName: varchar("topic_name", { length: 255 }).notNull(),
+		topicDescription: text("topic_description").notNull(),
 
-		createdAt: timestamp("created_at", { mode: "string" }).notNull(),
+		createdAt: timestamp("created_at", { mode: "string" })
+			.notNull()
+			.defaultNow(),
 		updatedAt: timestamp("updated_at", { mode: "string" }),
 		deletedAt: timestamp("deleted_at", { mode: "string" }),
 

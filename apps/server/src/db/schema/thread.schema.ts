@@ -13,16 +13,18 @@ import { users } from "./user.schema";
 export const threads = pgTable(
 	"thread",
 	{
-		id: uuid("id").primaryKey().notNull().unique(),
+		id: uuid("id").primaryKey().notNull().unique().defaultRandom(),
 
 		topicId: uuid("topic_id")
 			.references(() => topics.id)
 			.notNull(),
 
-		viewCount: integer("view_count"),
-		threadTitle: varchar("thread_title", { length: 255 }),
+		viewCount: integer("view_count").notNull().default(0),
+		threadTitle: varchar("thread_title", { length: 255 }).notNull(),
 
-		createdAt: timestamp("created_at", { mode: "string" }).notNull(),
+		createdAt: timestamp("created_at", { mode: "string" })
+			.notNull()
+			.defaultNow(),
 		updatedAt: timestamp("updated_at", { mode: "string" }),
 		deletedAt: timestamp("deleted_at", { mode: "string" }),
 

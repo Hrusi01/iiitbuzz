@@ -1,3 +1,10 @@
+import "fastify";
+
+declare module "fastify" {
+	interface FastifyRequest {
+		userId?: string;
+	}
+}
 import "@fastify/oauth2";
 import { FastifyRequest, FastifyReply } from "fastify";
 

@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
+import { users } from "@/db/schema/user.schema";
 import { DrizzleClient } from "../db/index";
-import { users } from "../db/schema/user.schema";
 import {
 	createUserSchema,
 	type GoogleTokenInfo,
@@ -238,8 +238,11 @@ export async function authRoutes(fastify: FastifyInstance) {
 	);
 }
 
-// Authentication middleware
-const authenticateUser: AuthenticationMiddleware = async (request, reply) => {
+// Authentication middleware - required authentication
+export const authenticateUser: AuthenticationMiddleware = async (
+	request,
+	reply,
+) => {
 	try {
 		const token = request.cookies.auth_token;
 
@@ -257,9 +260,30 @@ const authenticateUser: AuthenticationMiddleware = async (request, reply) => {
 			return reply.status(401).send({ error: "Invalid authentication token" });
 		}
 
-		(request as AuthenticatedRequest).userId = jwtValidation.data.userId;
+		request.userId = jwtValidation.data.userId;
 	} catch (err) {
 		request.log.error("Authentication error:", err);
 		return reply.status(401).send({ error: "Invalid authentication token" });
+	}
+};
+
+// Optional authentication middleware - doesn't block request if no auth
+export const optionalAuth: AuthenticationMiddleware = async (
+	request,
+	_reply,
+) => {
+	try {
+		const token = request.cookies.auth_token;
+		if (!token) return; // No token is fine for optional auth
+
+		const decoded = jwt.verify(token, env.JWT_SECRET) as jwt.JwtPayload;
+		const jwtValidation = jwtPayloadSchema.safeParse(decoded);
+
+		if (jwtValidation.success) {
+			request.userId = jwtValidation.data.userId;
+		}
+	} catch (err) {
+		// Ignore auth errors for optional auth
+		request.log.debug("Optional authentication failed:", err);
 	}
 };

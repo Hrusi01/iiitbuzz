@@ -13,16 +13,18 @@ import { users } from "./user.schema";
 export const posts = pgTable(
 	"post",
 	{
-		id: uuid("id").primaryKey().notNull().unique(),
+		id: uuid("id").primaryKey().notNull().unique().defaultRandom(),
 
 		threadId: uuid("thread_id")
 			.references(() => threads.id)
 			.notNull(),
 
-		vote: integer("vote"),
-		content: text("content"),
+		vote: integer("vote").default(0),
+		content: text("content").notNull(),
 
-		createdAt: timestamp("created_at", { mode: "string" }).notNull(),
+		createdAt: timestamp("created_at", { mode: "string" })
+			.notNull()
+			.defaultNow(),
 		updatedAt: timestamp("updated_at", { mode: "string" }),
 		deletedAt: timestamp("deleted_at", { mode: "string" }),
 
@@ -32,7 +34,7 @@ export const posts = pgTable(
 		updatedBy: uuid("updated_by").references(() => users.id),
 		deletedBy: uuid("deleted_by").references(() => users.id),
 
-		isApproved: boolean("is_approved"),
+		isApproved: boolean("is_approved").default(false),
 	},
 	(table) => [
 		index("idx_post_created_by").on(table.createdBy),
