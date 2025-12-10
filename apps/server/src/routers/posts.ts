@@ -10,6 +10,71 @@ import {
 import { authenticateUser } from "./auth";
 
 export async function postRoutes(fastify: FastifyInstance) {
+
+	fastify.get(
+        "/threads/:threadId/posts",
+        { preHandler: authenticateUser },
+        async (request, reply) => {
+            const userId = request.userId;
+            if (!userId) {
+                return reply.status(401).send({ error: "Unauthorized", success: false });
+            }
+            const user = await DrizzleClient.query.users.findFirst({
+                where: (u, { eq }) => eq(u.id, userId),
+            });
+            if (!user) {
+                return reply.status(404).send({ error: "User not found", success: false });
+            }
+            const { threadId } = request.params as { threadId: string };
+            if (!threadId) {
+                return reply.status(400).send({ success: false, error: "Invalid thread ID" });
+            }
+            try {
+                const threadPosts = await DrizzleClient.query.posts.findMany({
+                    where: (p, { eq }) => eq(p.threadId, threadId),
+                    orderBy: (p, { asc }) => [asc(p.createdAt)],
+                });
+                return reply.status(200).send({ success: true, posts: threadPosts });
+            } catch (error) {
+                fastify.log.error("Error fetching posts for thread:", error);
+                return reply.status(500).send({ success: false, error: "Failed to fetch posts" });
+            }
+        }
+    );
+	
+    fastify.get(
+        "/posts/:id",
+        { preHandler: authenticateUser },
+        async (request, reply) => {
+            const userId = request.userId;
+            if (!userId) {
+                return reply.status(401).send({ error: "Unauthorized", success: false });
+            }
+            const user = await DrizzleClient.query.users.findFirst({
+                where: (u, { eq }) => eq(u.id, userId),
+            });
+            if (!user) {
+                return reply.status(404).send({ error: "User not found", success: false });
+            }
+            const { id } = request.params as { id: string };
+            if (!id) {
+                return reply.status(400).send({ success: false, error: "Invalid post id" });
+            }
+            try {
+                const post = await DrizzleClient.query.posts.findFirst({
+                    where: (p, { eq }) => eq(p.id, id),
+                });
+                if (!post) {
+                    return reply.status(404).send({ success: false, error: "Post not found" });
+                }
+                return reply.status(200).send({ success: true, post });
+            } catch (error) {
+                fastify.log.error("Error fetching post:", error);
+                return reply.status(500).send({ success: false, error: "Failed to fetch post" });
+            }
+        }
+    );
+
 	// Create post
 	fastify.post(
 		"/posts",

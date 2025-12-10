@@ -10,6 +10,28 @@ import {
 import { authenticateUser } from "./auth";
 
 export async function topicRoutes(fastify: FastifyInstance) {
+	
+	fastify.get(
+        "/topics",
+        { preHandler: authenticateUser },
+        async (request, reply) => {
+            const userId = request.userId;
+            if (!userId)
+                return reply
+                    .status(401)
+                    .send({ success: false, error: "Unauthorized" });
+            try {
+                const allTopics = await DrizzleClient.query.topics.findMany();
+                return reply.status(200).send({ success: true, topics: allTopics });
+            } catch (error) {
+                fastify.log.error({ err: error }, "Failed to fetch topics");
+                return reply
+                    .status(500)
+                    .send({ success: false, error: "Failed to fetch topics" });
+            }
+        },
+    );
+
 	fastify.post(
 		"/topics",
 		{ preHandler: authenticateUser },

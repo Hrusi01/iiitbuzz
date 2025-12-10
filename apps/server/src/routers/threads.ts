@@ -10,6 +10,90 @@ import { threads as threadsTable } from "../db/schema/thread.schema";
 import { authenticateUser } from "./auth";
 
 export async function threadRoutes(fastify: FastifyInstance) {
+	fastify.get(
+    	"/topics/:topicId/threads",
+    	{ preHandler: authenticateUser },
+    	async (request, reply) => {
+     	 	const userId = request.userId;
+    	  	if (!userId) {
+    	    	return reply
+    	    	  .status(401)
+    	    	  .send({ error: "Unauthorized", success: false });
+    	  	}
+    	  	const user = await DrizzleClient.query.users.findFirst({
+    	    	where: (u, { eq }) => eq(u.id, userId),
+    	  	});
+    	  	if (!user) {
+    	    	return reply
+    	    	  .status(404)
+    	    	  .send({ error: "User not found", success: false });
+    	  	}
+    	  	const { topicId } = request.params as { topicId: string };
+    	  	if (!topicId) {
+    	    	return reply
+    	    	  .status(400)
+    	    	  .send({ success: false, error: "Invalid topic ID" });
+    	  	}
+    	  	try {
+    	    	const relatedThreads = await DrizzleClient.query.threads.findMany({
+    	    	  where: (t, { eq }) => eq(t.topicId, topicId),
+    	    	  orderBy: (t, { desc }) => [desc(t.createdAt)],
+    	    	});
+    	    	return reply
+    	    	  .status(200)
+    	    	  .send({ success: true, threads: relatedThreads });
+    	  	} catch (error) {
+    	    	fastify.log.error("Error fetching threads for topic:", error);
+    	    	return reply
+    	    	  .status(500)
+    	    	  .send({ success: false, error: "Failed to fetch threads" });
+    	  	}
+    	}
+  	);
+
+	fastify.get(
+    "/threads/:id",
+    { preHandler: authenticateUser },
+    async (request, reply) => {
+      const userId = request.userId;
+      if (!userId) {
+        return reply
+          .status(401)
+          .send({ error: "Unauthorized", success: false });
+      }
+      const user = await DrizzleClient.query.users.findFirst({
+        where: (u, { eq }) => eq(u.id, userId),
+      });
+      if (!user) {
+        return reply
+          .status(404)
+          .send({ error: "User not found", success: false });
+      }
+      const params = threadIdParamsSchema.safeParse(request.params);
+      if (!params.success) {
+        return reply
+          .status(400)
+          .send({ success: false, error: "Invalid thread id" });
+      }
+      try {
+        const thread = await DrizzleClient.query.threads.findFirst({
+          where: (t, { eq }) => eq(t.id, params.data.id),
+        });
+        if (!thread) {
+          return reply
+            .status(404)
+            .send({ success: false, error: "Thread not found" });
+        }
+        return reply.status(200).send({ success: true, thread });
+      } catch (error) {
+        fastify.log.error("Error fetching thread:", error);
+        return reply
+          .status(500)
+          .send({ success: false, error: "Failed to fetch thread" });
+      }
+    }
+  );
+
 	fastify.post(
 		"/threads/new",
 		{ preHandler: authenticateUser },
