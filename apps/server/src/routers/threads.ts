@@ -59,7 +59,7 @@ export async function threadRoutes(fastify: FastifyInstance) {
                 topicId: data.topicId,
                 threadTitle: data.threadTitle,
                 createdBy: userid,
-                //default values are there in the schema of table 
+                viewCount: 0, 
             };
             try {
                 const [newThread] = await DrizzleClient.insert(threadsTable)
@@ -260,7 +260,7 @@ export async function threadRoutes(fastify: FastifyInstance) {
         async (request, reply) => {
             const authUserId = request.userId;
     
-			
+
             const params = threadIdParamsSchema.safeParse(request.params);
             if (!params.success)
                 return reply.status(400).send({ success: false, error: "Invalid thread id" });
