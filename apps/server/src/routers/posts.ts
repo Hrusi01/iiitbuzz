@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, desc, isNull, and } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { DrizzleClient } from "@/db/index";
 import { posts as postsTable } from "@/db/schema/post.schema";
@@ -8,6 +8,7 @@ import {
 	updatePostSchema,
 } from "@/dto/posts.dto";
 import { authenticateUser } from "./auth";
+import { users as usersTable } from "@/db/schema/user.schema";
 
 export async function postRoutes(fastify: FastifyInstance) {
 	// Create post
@@ -121,4 +122,90 @@ export async function postRoutes(fastify: FastifyInstance) {
 			return reply.status(204).send();
 		},
 	);
+
+    
+    // GET /posts/thread/:threadId  read posts by thread ID read list of posts
+    fastify.get("/posts/thread/:threadId", async (request, reply) => {
+      
+        const params = postIdParamsSchema.safeParse(request.params); 
+    
+        
+        if (!params.success)
+            return reply
+                .status(400)
+                .send({ success: false, error: "Invalid thread id" });
+
+        const threadId = params.data.id;
+
+        try {
+            const threadPosts = await DrizzleClient.select({
+                id: postsTable.id,
+                content: postsTable.content,
+                vote: postsTable.vote,
+                createdAt: postsTable.createdAt,
+                updatedAt: postsTable.updatedAt,
+                createdBy: postsTable.createdBy,
+                creatorUsername: usersTable.username, 
+            })
+            .from(postsTable)
+            .where(and(
+                eq(postsTable.threadId, threadId),
+                isNull(postsTable.deletedAt) 
+            ))
+            .leftJoin(usersTable, eq(postsTable.createdBy, usersTable.id))
+            .orderBy(desc(postsTable.createdAt)); // Sort by newest first
+
+            return reply.status(200).send({ success: true, posts: threadPosts });
+        } catch (error) {
+            fastify.log.error({ err: error }, "Failed to fetch posts by thread ID");
+            return reply
+                .status(500)
+                .send({ success: false, error: "Failed to fetch posts" });
+        }
+    });
+
+    
+    // GET /posts/:id read single post by id
+    fastify.get("/posts/:id", async (request, reply) => {
+        const params = postIdParamsSchema.safeParse(request.params);
+        if (!params.success)
+            return reply
+                .status(400)
+                .send({ success: false, error: "Invalid post id" });
+        
+        try {
+            const result = await DrizzleClient.select({
+                id: postsTable.id,
+                content: postsTable.content,
+                vote: postsTable.vote,
+                threadId: postsTable.threadId,
+                createdAt: postsTable.createdAt,
+                updatedAt: postsTable.updatedAt,
+               
+                creatorUsername: usersTable.username, 
+            })
+            .from(postsTable)
+            .where(and(
+                eq(postsTable.id, params.data.id),
+                isNull(postsTable.deletedAt) 
+            ))
+            .leftJoin(usersTable, eq(postsTable.createdBy, usersTable.id))
+            .limit(1);
+
+            const post = result[0];
+            
+            if (!post) {
+                return reply
+                    .status(404)
+                    .send({ success: false, error: "Post not found or deleted" });
+            }
+
+            return reply.status(200).send({ success: true, post });
+        } catch (error) {
+            fastify.log.error({ err: error }, "Failed to fetch single post");
+            return reply
+                .status(500)
+                .send({ success: false, error: "Failed to fetch post" });
+        }
+    });
 }
