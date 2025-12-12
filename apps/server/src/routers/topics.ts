@@ -7,42 +7,30 @@ import {
 	topicIdParamsSchema,
 	updateTopicSchema,
 } from "@/dto/topics.dto";
-import { authenticateUser } from "./auth";
+import { attachUser, authenticateUser } from "./auth";
 
 export async function topicRoutes(fastify: FastifyInstance) {
 	
 	fastify.get(
-    "/topics",
-    {
-      preHandler: authenticateUser,
-      schema: {
-        querystring: {
-          type: "object",
-          properties: {
-            page: { type: "integer", minimum: 1, default: 1 },
-            limit: { type: "integer", minimum: 1, maximum: 100, default: 10 },
-          },
-        },
-      },
-    },
+	"/topics",
+	{
+	  preHandler: [authenticateUser , attachUser as any ],
+	  schema: {
+		querystring: {
+		  type: "object",
+		  properties: {
+			page: { type: "integer", minimum: 1, default: 1 },
+			limit: { type: "integer", minimum: 1, maximum: 100, default: 10 },
+		  },
+		},
+	  },
+	},
     async (
       request: FastifyRequest<{ Querystring: { page: number; limit: number } }>,
       reply
     ) => {
       const { page, limit } = request.query;
       const offset = (page - 1) * limit;
-      const userId = request.userId;
-      if (!userId)
-        return reply
-          .status(401)
-          .send({ success: false, error: "Unauthorized" });
-      const user = await DrizzleClient.query.users.findFirst({
-        where: (u, { eq }) => eq(u.id, userId),
-      });
-      if (!user)
-        return reply
-          .status(404)
-          .send({ success: false, error: "User not found" });
       try {
         const topics = await DrizzleClient.query.topics.findMany({
           limit: limit,

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import type { FastifyInstance , FastifyRequest} from "fastify";
 import {
 	createThreadSchema,
@@ -7,14 +7,14 @@ import {
 } from "@/dto/threads.dto";
 import { DrizzleClient } from "../db/index";
 import { threads as threadsTable } from "../db/schema/thread.schema";
-import { authenticateUser } from "./auth";
+import { attachUser, authenticateUser } from "./auth";
 import { topicIdParamsSchema } from "@/dto/topics.dto";
 
 export async function threadRoutes(fastify: FastifyInstance) {
 	fastify.get(
     "/topics/:id/threads",
     {
-      preHandler: authenticateUser,
+	  preHandler: [authenticateUser , attachUser as any ],
       schema: {
         querystring: {
           type: "object",
@@ -40,32 +40,26 @@ export async function threadRoutes(fastify: FastifyInstance) {
           .status(400)
           .send({ success: false, error: "Invalid topic ID" });
       const topicId = params.data.id;
-      const userId = request.userId;
-      if (!userId)
-        return reply
-          .status(401)
-          .send({ error: "Unauthorized", success: false });
-      const user = await DrizzleClient.query.users.findFirst({
-        where: (u, { eq }) => eq(u.id, userId),
-      });
-      if (!user)
-        return reply
-          .status(404)
-          .send({ error: "User not found", success: false });
       try {
-        const relatedThreads = await DrizzleClient.query.threads.findMany({
-          where: (t, { eq }) => eq(t.topicId, topicId),
-          orderBy: (t, { desc }) => [desc(t.createdAt)],
-          limit: limit,
-          offset: offset,
-        });
+                const [relatedThreads, countResult] = await Promise.all([
+          DrizzleClient.query.threads.findMany({
+            where: (t, { eq }) => eq(t.topicId, topicId),
+            orderBy: (t, { desc }) => [desc(t.createdAt)],
+            limit: limit,
+            offset: offset,
+          }),
+          DrizzleClient.select({ total: count() })
+            .from(threadsTable)
+            .where(eq(threadsTable.topicId, topicId)),
+        ]);
+
         return reply.status(200).send({
           success: true,
           threads: relatedThreads,
           pagination: {
             page,
             limit,
-            count: relatedThreads.length,
+            count: countResult[0]?.total ?? 0,
           },
         });
       } catch (error) {
@@ -81,22 +75,8 @@ export async function threadRoutes(fastify: FastifyInstance) {
 
 	fastify.get(
     "/threads/:id",
-    { preHandler: authenticateUser },
+    { 	  preHandler: [authenticateUser , attachUser as any ], },
     async (request, reply) => {
-      const userId = request.userId;
-      if (!userId) {
-        return reply
-          .status(401)
-          .send({ error: "Unauthorized", success: false });
-      }
-      const user = await DrizzleClient.query.users.findFirst({
-        where: (u, { eq }) => eq(u.id, userId),
-      });
-      if (!user) {
-        return reply
-          .status(404)
-          .send({ error: "User not found", success: false });
-      }
       const params = threadIdParamsSchema.safeParse(request.params);
       if (!params.success) {
         return reply

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import type { FastifyInstance , FastifyRequest} from "fastify";
 import { DrizzleClient } from "@/db/index";
 import { posts as postsTable } from "@/db/schema/post.schema";
@@ -8,14 +8,14 @@ import {
 	updatePostSchema,
 } from "@/dto/posts.dto";
 import { threadIdParamsSchema } from "@/dto/threads.dto";
-import { authenticateUser } from "./auth";
+import { attachUser, authenticateUser } from "./auth";
 
 export async function postRoutes(fastify: FastifyInstance) {
 
 	fastify.get(
     "/threads/:id/posts",
     {
-      preHandler: authenticateUser,
+	  preHandler: [authenticateUser , attachUser as any ],
       schema: {
         querystring: {
           type: "object",
@@ -41,32 +41,26 @@ export async function postRoutes(fastify: FastifyInstance) {
           .status(400)
           .send({ success: false, error: "Invalid thread ID" });
       const threadId = params.data.id;
-      const userId = request.userId;
-      if (!userId)
-        return reply
-          .status(401)
-          .send({ error: "Unauthorized", success: false });
-      const user = await DrizzleClient.query.users.findFirst({
-        where: (u, { eq }) => eq(u.id, userId),
-      });
-      if (!user)
-        return reply
-          .status(404)
-          .send({ error: "User not found", success: false });
       try {
-        const threadPosts = await DrizzleClient.query.posts.findMany({
-          where: (p, { eq }) => eq(p.threadId, threadId),
-          orderBy: (p, { asc }) => [asc(p.createdAt)],
-          limit: limit,
-          offset: offset,
-        });
+        const [threadPosts, countResult] = await Promise.all([
+          DrizzleClient.query.posts.findMany({
+            where: (p, { eq }) => eq(p.threadId, threadId),
+            orderBy: (p, { asc }) => [asc(p.createdAt)],
+            limit: limit,
+            offset: offset,
+          }),
+          DrizzleClient.select({ total: count() })
+            .from(postsTable)
+            .where(eq(postsTable.threadId, threadId)),
+        ]);
+
         return reply.status(200).send({
           success: true,
           posts: threadPosts,
           pagination: {
             page,
             limit,
-            count: threadPosts.length,
+            count: countResult[0]?.total ?? 0,
           },
         });
       } catch (error) {
@@ -80,18 +74,8 @@ export async function postRoutes(fastify: FastifyInstance) {
 	
     fastify.get(
         "/posts/:id",
-        { preHandler: authenticateUser },
+        { 	  preHandler: [authenticateUser , attachUser as any ], },
         async (request, reply) => {
-            const userId = request.userId;
-            if (!userId) {
-                return reply.status(401).send({ error: "Unauthorized", success: false });
-            }
-            const user = await DrizzleClient.query.users.findFirst({
-                where: (u, { eq }) => eq(u.id, userId),
-            });
-            if (!user) {
-                return reply.status(404).send({ error: "User not found", success: false });
-            }
             const params = postIdParamsSchema.safeParse(request.params);
             if (!params.success) {
                 return reply.status(400).send({ success: false, error: "Invalid post id" });
