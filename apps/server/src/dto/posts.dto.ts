@@ -21,3 +21,8 @@ export type UpdatePostInput = z.infer<typeof updatePostSchema>;
 export const postIdParamsSchema = z.object({
 	id: z.string().uuid(),
 });
+
+export const threadIdParamsSchema = z.object({
+    threadId: z.string().uuid("Invalid Thread ID format (must be UUID)"),
+});
+export type ThreadIdParamsInput = z.infer<typeof threadIdParamsSchema>;

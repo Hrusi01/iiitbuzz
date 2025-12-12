@@ -1,4 +1,4 @@
-import { eq, desc, isNull, and } from "drizzle-orm";
+import { eq, desc, isNull, and,sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { DrizzleClient } from "@/db/index";
 import { posts as postsTable } from "@/db/schema/post.schema";
@@ -9,6 +9,7 @@ import {
 } from "@/dto/posts.dto";
 import { authenticateUser } from "./auth";
 import { users as usersTable } from "@/db/schema/user.schema";
+import { threadIdParamsSchema } from "@/dto/posts.dto";
 
 export async function postRoutes(fastify: FastifyInstance) {
 	// Create post
@@ -124,45 +125,79 @@ export async function postRoutes(fastify: FastifyInstance) {
 	);
 
     
-    // GET /posts/thread/:threadId  read posts by thread ID read list of posts
-    fastify.get("/posts/thread/:threadId", async (request, reply) => {
-      
-        const params = postIdParamsSchema.safeParse(request.params); 
+	//GET /posts/thread/<id>?page=1&limit=10
+  fastify.get("/posts/thread/:threadId", async (request, reply) => {
+    // FIX: Use the new schema that expects 'threadId'
+    const params = threadIdParamsSchema.safeParse(request.params); 
     
-        
-        if (!params.success)
-            return reply
-                .status(400)
-                .send({ success: false, error: "Invalid thread id" });
+    if (!params.success)
+        return reply
+            .status(400)
+            .send({ success: false, error: "Invalid thread id" }); // This will now pass or fail correctly
 
-        const threadId = params.data.id;
+    const threadId = params.data.threadId;
 
-        try {
-            const threadPosts = await DrizzleClient.select({
-                id: postsTable.id,
-                content: postsTable.content,
-                vote: postsTable.vote,
-                createdAt: postsTable.createdAt,
-                updatedAt: postsTable.updatedAt,
-                createdBy: postsTable.createdBy,
-                creatorUsername: usersTable.username, 
-            })
+    interface PaginationQuery {
+        page?: string;
+        limit?: string;
+    }
+
+    const { page: rawPage, limit: rawLimit } = (request.query ?? {}) as PaginationQuery;
+
+    const page = Math.max(Number(rawPage ?? 1), 1);
+    const limit = Math.max(Number(rawLimit ?? 10), 1);
+    const offset = (page - 1) * limit;
+
+    try {
+        const posts = await DrizzleClient.select({
+            id: postsTable.id,
+            content: postsTable.content,
+            vote: postsTable.vote,
+            createdAt: postsTable.createdAt,
+            updatedAt: postsTable.updatedAt,
+            createdBy: postsTable.createdBy,
+            creatorUsername: usersTable.username,
+        })
             .from(postsTable)
-            .where(and(
-                eq(postsTable.threadId, threadId),
-                isNull(postsTable.deletedAt) 
-            ))
             .leftJoin(usersTable, eq(postsTable.createdBy, usersTable.id))
-            .orderBy(desc(postsTable.createdAt)); // Sort by newest first
+            .where(
+                and(eq(postsTable.threadId, threadId), isNull(postsTable.deletedAt))
+            )
+            .orderBy(desc(postsTable.createdAt))
+            .limit(limit)
+            .offset(offset);
 
-            return reply.status(200).send({ success: true, posts: threadPosts });
-        } catch (error) {
-            fastify.log.error({ err: error }, "Failed to fetch posts by thread ID");
-            return reply
-                .status(500)
-                .send({ success: false, error: "Failed to fetch posts" });
-        }
-    });
+        const totalCountResult = await DrizzleClient.select({
+            count: sql<number>`COUNT(*)`,
+        })
+            .from(postsTable)
+            .where(
+                and(eq(postsTable.threadId, threadId), isNull(postsTable.deletedAt))
+            );
+
+        const total = Number(totalCountResult[0].count);
+        const totalPages = Math.ceil(total / limit);
+
+        return reply.status(200).send({
+            success: true,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNext: page < totalPages,
+                hasPrev: page > 1,
+            },
+            posts,
+        });
+    } catch (error) {
+        fastify.log.error({ err: error }, "Failed to fetch posts by thread ID");
+        return reply
+            .status(500)
+            .send({ success: false, error: "Failed to fetch posts" });
+    }
+});
+
 
     
     // GET /posts/:id read single post by id
