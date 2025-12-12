@@ -20,7 +20,9 @@ export const envSchema = z.object({
 		.enum(["development", "production", "test"])
 		.default("development"),
 
-ANON_SECRET_KEY: z.string().min(16, "ANON_SECRET_KEY must be at least 16 characters long"),
+	ANON_SECRET_KEY: z
+		.string()
+		.min(16, "ANON_SECRET_KEY must be at least 16 characters long"),
 });
 
 export type Env = z.infer<typeof envSchema>;

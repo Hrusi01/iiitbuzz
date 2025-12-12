@@ -1,15 +1,15 @@
-import { eq, desc, isNull, and,sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { DrizzleClient } from "@/db/index";
 import { posts as postsTable } from "@/db/schema/post.schema";
+import { users as usersTable } from "@/db/schema/user.schema";
 import {
 	createPostSchema,
 	postIdParamsSchema,
+	threadIdParamsSchema,
 	updatePostSchema,
 } from "@/dto/posts.dto";
 import { authenticateUser } from "./auth";
-import { users as usersTable } from "@/db/schema/user.schema";
-import { threadIdParamsSchema } from "@/dto/posts.dto";
 
 export async function postRoutes(fastify: FastifyInstance) {
 	// Create post
@@ -124,125 +124,121 @@ export async function postRoutes(fastify: FastifyInstance) {
 		},
 	);
 
-    
 	//GET /posts/thread/<id>?page=1&limit=10
-  fastify.get("/posts/thread/:threadId", async (request, reply) => {
-    
-    const params = threadIdParamsSchema.safeParse(request.params); 
-    
-    if (!params.success)
-        return reply
-            .status(400)
-            .send({ success: false, error: "Invalid thread id" }); 
+	fastify.get("/posts/thread/:threadId", async (request, reply) => {
+		const params = threadIdParamsSchema.safeParse(request.params);
 
-    const threadId = params.data.threadId;
+		if (!params.success)
+			return reply
+				.status(400)
+				.send({ success: false, error: "Invalid thread id" });
 
-    interface PaginationQuery {
-        page?: string;
-        limit?: string;
-    }
+		const threadId = params.data.threadId;
 
-    const { page: rawPage, limit: rawLimit } = (request.query ?? {}) as PaginationQuery;
+		interface PaginationQuery {
+			page?: string;
+			limit?: string;
+		}
 
-    const page = Math.max(Number(rawPage ?? 1), 1);
-    const limit = Math.max(Number(rawLimit ?? 10), 1);
-    const offset = (page - 1) * limit;
+		const { page: rawPage, limit: rawLimit } = (request.query ??
+			{}) as PaginationQuery;
 
-    try {
-        const posts = await DrizzleClient.select({
-            id: postsTable.id,
-            content: postsTable.content,
-            vote: postsTable.vote,
-            createdAt: postsTable.createdAt,
-            updatedAt: postsTable.updatedAt,
-            createdBy: postsTable.createdBy,
-            creatorUsername: usersTable.username,
-        })
-            .from(postsTable)
-            .leftJoin(usersTable, eq(postsTable.createdBy, usersTable.id))
-            .where(
-                and(eq(postsTable.threadId, threadId), isNull(postsTable.deletedAt))
-            )
-            .orderBy(desc(postsTable.createdAt))
-            .limit(limit)
-            .offset(offset);
+		const page = Math.max(Number(rawPage ?? 1), 1);
+		const limit = Math.max(Number(rawLimit ?? 10), 1);
+		const offset = (page - 1) * limit;
 
-        const totalCountResult = await DrizzleClient.select({
-            count: sql<number>`COUNT(*)`,
-        })
-            .from(postsTable)
-            .where(
-                and(eq(postsTable.threadId, threadId), isNull(postsTable.deletedAt))
-            );
+		try {
+			const posts = await DrizzleClient.select({
+				id: postsTable.id,
+				content: postsTable.content,
+				vote: postsTable.vote,
+				createdAt: postsTable.createdAt,
+				updatedAt: postsTable.updatedAt,
+				createdBy: postsTable.createdBy,
+				creatorUsername: usersTable.username,
+			})
+				.from(postsTable)
+				.leftJoin(usersTable, eq(postsTable.createdBy, usersTable.id))
+				.where(
+					and(eq(postsTable.threadId, threadId), isNull(postsTable.deletedAt)),
+				)
+				.orderBy(desc(postsTable.createdAt))
+				.limit(limit)
+				.offset(offset);
 
-        const total = Number(totalCountResult[0].count);
-        const totalPages = Math.ceil(total / limit);
+			const totalCountResult = await DrizzleClient.select({
+				count: sql<number>`COUNT(*)`,
+			})
+				.from(postsTable)
+				.where(
+					and(eq(postsTable.threadId, threadId), isNull(postsTable.deletedAt)),
+				);
 
-        return reply.status(200).send({
-            success: true,
-            pagination: {
-                page,
-                limit,
-                total,
-                totalPages,
-                hasNext: page < totalPages,
-                hasPrev: page > 1,
-            },
-            posts,
-        });
-    } catch (error) {
-        fastify.log.error({ err: error }, "Failed to fetch posts by thread ID");
-        return reply
-            .status(500)
-            .send({ success: false, error: "Failed to fetch posts" });
-    }
-});
+			const total = Number(totalCountResult[0].count);
+			const totalPages = Math.ceil(total / limit);
 
+			return reply.status(200).send({
+				success: true,
+				pagination: {
+					page,
+					limit,
+					total,
+					totalPages,
+					hasNext: page < totalPages,
+					hasPrev: page > 1,
+				},
+				posts,
+			});
+		} catch (error) {
+			fastify.log.error({ err: error }, "Failed to fetch posts by thread ID");
+			return reply
+				.status(500)
+				.send({ success: false, error: "Failed to fetch posts" });
+		}
+	});
 
-    
-    // GET /posts/:id read single post by id
-    fastify.get("/posts/:id", async (request, reply) => {
-        const params = postIdParamsSchema.safeParse(request.params);
-        if (!params.success)
-            return reply
-                .status(400)
-                .send({ success: false, error: "Invalid post id" });
-        
-        try {
-            const result = await DrizzleClient.select({
-                id: postsTable.id,
-                content: postsTable.content,
-                vote: postsTable.vote,
-                threadId: postsTable.threadId,
-                createdAt: postsTable.createdAt,
-                updatedAt: postsTable.updatedAt,
-               
-                creatorUsername: usersTable.username, 
-            })
-            .from(postsTable)
-            .where(and(
-                eq(postsTable.id, params.data.id),
-                isNull(postsTable.deletedAt) 
-            ))
-            .leftJoin(usersTable, eq(postsTable.createdBy, usersTable.id))
-            .limit(1);
+	// GET /posts/:id read single post by id
+	fastify.get("/posts/:id", async (request, reply) => {
+		const params = postIdParamsSchema.safeParse(request.params);
+		if (!params.success)
+			return reply
+				.status(400)
+				.send({ success: false, error: "Invalid post id" });
 
-            const post = result[0];
-            
-            if (!post) {
-                return reply
-                    .status(404)
-                    .send({ success: false, error: "Post not found or deleted" });
-            }
+		try {
+			const result = await DrizzleClient.select({
+				id: postsTable.id,
+				content: postsTable.content,
+				vote: postsTable.vote,
+				threadId: postsTable.threadId,
+				createdAt: postsTable.createdAt,
+				updatedAt: postsTable.updatedAt,
 
-            return reply.status(200).send({ success: true, post });
-        } catch (error) {
-            fastify.log.error({ err: error }, "Failed to fetch single post");
-            return reply
-                .status(500)
-                .send({ success: false, error: "Failed to fetch post" });
-        }
-    });
+				creatorUsername: usersTable.username,
+			})
+				.from(postsTable)
+				.where(
+					and(eq(postsTable.id, params.data.id), isNull(postsTable.deletedAt)),
+				)
+				.leftJoin(usersTable, eq(postsTable.createdBy, usersTable.id))
+				.limit(1);
+
+			const post = result[0];
+
+			if (!post) {
+				return reply
+					.status(404)
+					.send({ success: false, error: "Post not found or deleted" });
+			}
+
+			return reply.status(200).send({ success: true, post });
+		} catch (error) {
+			fastify.log.error({ err: error }, "Failed to fetch single post");
+			return reply
+				.status(500)
+				.send({ success: false, error: "Failed to fetch post" });
+		}
+	});
 }
 
-//ci fixing 
+//ci fixing

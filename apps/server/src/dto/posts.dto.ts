@@ -23,6 +23,6 @@ export const postIdParamsSchema = z.object({
 });
 
 export const threadIdParamsSchema = z.object({
-    threadId: z.string().uuid("Invalid Thread ID format (must be UUID)"),
+	threadId: z.string().uuid("Invalid Thread ID format (must be UUID)"),
 });
 export type ThreadIdParamsInput = z.infer<typeof threadIdParamsSchema>;

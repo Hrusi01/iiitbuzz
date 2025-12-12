@@ -1,14 +1,14 @@
-import { eq, sql, desc, isNull, and } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { DrizzleClient } from "@/db/index";
 import { topics as topicsTable } from "@/db/schema/topic.schema";
+import { users as usersTable } from "@/db/schema/user.schema";
 import {
 	createTopicSchema,
 	topicIdParamsSchema,
 	updateTopicSchema,
 } from "@/dto/topics.dto";
 import { authenticateUser } from "./auth";
-import { users as usersTable } from "@/db/schema/user.schema";
 
 export async function topicRoutes(fastify: FastifyInstance) {
 	fastify.post(
@@ -151,71 +151,73 @@ export async function topicRoutes(fastify: FastifyInstance) {
 	);
 
 	//READ All Topics
-    // GET /topics
-    fastify.get("/topics", async (request, reply) => {
-        try {
-            const allTopics = await DrizzleClient.select({
-                id: topicsTable.id,
-                topicName: topicsTable.topicName,
-                topicDescription: topicsTable.topicDescription,
-                createdAt: topicsTable.createdAt,
-                
-                creatorUsername: usersTable.username, 
-            })
-            .from(topicsTable)
-            .where(isNull(topicsTable.deletedAt)) 
-            .leftJoin(usersTable, eq(topicsTable.createdBy, usersTable.id))
-            .orderBy(desc(topicsTable.createdAt)); 
+	// GET /topics
+	fastify.get("/topics", async (_request, reply) => {
+		try {
+			const allTopics = await DrizzleClient.select({
+				id: topicsTable.id,
+				topicName: topicsTable.topicName,
+				topicDescription: topicsTable.topicDescription,
+				createdAt: topicsTable.createdAt,
 
-            return reply.status(200).send({ success: true, topics: allTopics });
-        } catch (error) {
-            fastify.log.error({ err: error }, "Failed to fetch all topics");
-            return reply
-                .status(500)
-                .send({ success: false, error: "Failed to fetch topics" });
-        }
-    });
+				creatorUsername: usersTable.username,
+			})
+				.from(topicsTable)
+				.where(isNull(topicsTable.deletedAt))
+				.leftJoin(usersTable, eq(topicsTable.createdBy, usersTable.id))
+				.orderBy(desc(topicsTable.createdAt));
 
-    //read single topic by ID
-    // GET /topics/:id
-    fastify.get("/topics/:id", async (request, reply) => {
-        const params = topicIdParamsSchema.safeParse(request.params);
-        if (!params.success)
-            return reply
-                .status(400)
-                .send({ success: false, error: "Invalid topic id" });
-        
-        try {
-            const result = await DrizzleClient.select({
-                id: topicsTable.id,
-                topicName: topicsTable.topicName,
-                topicDescription: topicsTable.topicDescription,
-                createdAt: topicsTable.createdAt,
-                updatedAt: topicsTable.updatedAt,
-                creatorUsername: usersTable.username, 
-            })
-            .from(topicsTable)
-            .where(and(
-                eq(topicsTable.id, params.data.id),
-                isNull(topicsTable.deletedAt) 
-            ))
-            .leftJoin(usersTable, eq(topicsTable.createdBy, usersTable.id))
-            .limit(1);
+			return reply.status(200).send({ success: true, topics: allTopics });
+		} catch (error) {
+			fastify.log.error({ err: error }, "Failed to fetch all topics");
+			return reply
+				.status(500)
+				.send({ success: false, error: "Failed to fetch topics" });
+		}
+	});
 
-            const topic = result[0];
-            
-            if (!topic) {
-                return reply
-                    .status(404)
-                    .send({ success: false, error: "Topic not found or deleted" });
-            }
+	//read single topic by ID
+	// GET /topics/:id
+	fastify.get("/topics/:id", async (request, reply) => {
+		const params = topicIdParamsSchema.safeParse(request.params);
+		if (!params.success)
+			return reply
+				.status(400)
+				.send({ success: false, error: "Invalid topic id" });
 
-            return reply.status(200).send({ success: true, topic });
-        } catch (error) {
-            fastify.log.error({ err: error }, "Failed to fetch single topic");
-            return reply
-                .status(500)
-                .send({ success: false, error: "Failed to fetch topic" });
-        }
-    });
+		try {
+			const result = await DrizzleClient.select({
+				id: topicsTable.id,
+				topicName: topicsTable.topicName,
+				topicDescription: topicsTable.topicDescription,
+				createdAt: topicsTable.createdAt,
+				updatedAt: topicsTable.updatedAt,
+				creatorUsername: usersTable.username,
+			})
+				.from(topicsTable)
+				.where(
+					and(
+						eq(topicsTable.id, params.data.id),
+						isNull(topicsTable.deletedAt),
+					),
+				)
+				.leftJoin(usersTable, eq(topicsTable.createdBy, usersTable.id))
+				.limit(1);
+
+			const topic = result[0];
+
+			if (!topic) {
+				return reply
+					.status(404)
+					.send({ success: false, error: "Topic not found or deleted" });
+			}
+
+			return reply.status(200).send({ success: true, topic });
+		} catch (error) {
+			fastify.log.error({ err: error }, "Failed to fetch single topic");
+			return reply
+				.status(500)
+				.send({ success: false, error: "Failed to fetch topic" });
+		}
+	});
 }

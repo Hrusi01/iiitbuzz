@@ -7,5 +7,5 @@ import { users } from "./schema/user.schema";
 import { votes } from "./schema/votes.schema";
 
 export const DrizzleClient = drizzle(env.DATABASE_URL, {
-	schema: { users, topics, threads, posts,votes},
+	schema: { users, topics, threads, posts, votes },
 });
