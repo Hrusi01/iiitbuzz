@@ -4,6 +4,8 @@ import { postRoutes } from "./posts";
 import { threadRoutes } from "./threads";
 import { topicRoutes } from "./topics";
 import { userRoutes } from "./user";
+import { anonymousRoutes } from "./anonymousName";
+import { searchRoutes } from "./search";
 
 export async function appRouter(fastify: FastifyInstance) {
 	// Ensure the request object has a userId property at runtime
@@ -14,4 +16,6 @@ export async function appRouter(fastify: FastifyInstance) {
 	fastify.register(topicRoutes);
 	fastify.register(threadRoutes);
 	fastify.register(postRoutes);
+	fastify.register(anonymousRoutes);
+	fastify.register(searchRoutes);
 }
