@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { DrizzleClient } from "@/db/index";
 import { topics as topicsTable } from "@/db/schema/topic.schema";
+import { users as usersTable } from "@/db/schema/user.schema";
 import {
 	createTopicSchema,
 	topicIdParamsSchema,
@@ -10,6 +11,7 @@ import {
 import { authenticateUser } from "./auth";
 
 export async function topicRoutes(fastify: FastifyInstance) {
+
 	fastify.post(
 		"/topics",
 		{ preHandler: authenticateUser },
@@ -26,9 +28,9 @@ export async function topicRoutes(fastify: FastifyInstance) {
 					.status(400)
 					.send({ success: false, error: "Invalid request body" });
 			}
+
 			const { name, description } = parsed.data;
 
-			// Ensure user exists
 			const user = await DrizzleClient.query.users.findFirst({
 				where: (u, { eq }) => eq(u.id, userId),
 			});
@@ -37,12 +39,12 @@ export async function topicRoutes(fastify: FastifyInstance) {
 					.status(404)
 					.send({ success: false, error: "User not found" });
 
-			type NewTopic = typeof topicsTable.$inferInsert;
-			const toInsert: NewTopic = {
+			const toInsert: typeof topicsTable.$inferInsert = {
 				topicName: name,
 				topicDescription: description,
 				createdBy: userId,
 			};
+
 			try {
 				const [topic] = await DrizzleClient.insert(topicsTable)
 					.values(toInsert)
@@ -72,6 +74,7 @@ export async function topicRoutes(fastify: FastifyInstance) {
 				return reply
 					.status(400)
 					.send({ success: false, error: "Invalid topic id" });
+
 			const body = updateTopicSchema.safeParse(request.body);
 			if (!body.success)
 				return reply
@@ -85,8 +88,11 @@ export async function topicRoutes(fastify: FastifyInstance) {
 				return reply
 					.status(404)
 					.send({ success: false, error: "Topic not found" });
+
 			if (topic.createdBy !== userId)
-				return reply.status(403).send({ success: false, error: "Forbidden" });
+				return reply
+					.status(403)
+					.send({ success: false, error: "Forbidden" });
 
 			const updates: Partial<typeof topicsTable.$inferInsert> = {
 				topicName: body.data.name ?? undefined,
@@ -119,6 +125,7 @@ export async function topicRoutes(fastify: FastifyInstance) {
 				return reply
 					.status(401)
 					.send({ success: false, error: "Unauthorized" });
+
 			const params = topicIdParamsSchema.safeParse(request.params);
 			if (!params.success)
 				return reply
@@ -132,13 +139,15 @@ export async function topicRoutes(fastify: FastifyInstance) {
 				return reply
 					.status(404)
 					.send({ success: false, error: "Topic not found" });
+
 			if (topic.createdBy !== userId)
-				return reply.status(403).send({ success: false, error: "Forbidden" });
+				return reply
+					.status(403)
+					.send({ success: false, error: "Forbidden" });
 
 			try {
-				await DrizzleClient.delete(topicsTable).where(
-					eq(topicsTable.id, params.data.id),
-				);
+				await DrizzleClient.delete(topicsTable)
+					.where(eq(topicsTable.id, params.data.id));
 				return reply.status(204).send();
 			} catch (error) {
 				fastify.log.error({ err: error }, "Failed to delete topic");
