@@ -127,13 +127,13 @@ export async function postRoutes(fastify: FastifyInstance) {
     
 	//GET /posts/thread/<id>?page=1&limit=10
   fastify.get("/posts/thread/:threadId", async (request, reply) => {
-    // FIX: Use the new schema that expects 'threadId'
+    
     const params = threadIdParamsSchema.safeParse(request.params); 
     
     if (!params.success)
         return reply
             .status(400)
-            .send({ success: false, error: "Invalid thread id" }); // This will now pass or fail correctly
+            .send({ success: false, error: "Invalid thread id" }); 
 
     const threadId = params.data.threadId;
 

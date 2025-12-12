@@ -5,6 +5,7 @@ import {
     threadIdParamsSchema,
     topicIdParamsSchema, 
     updateThreadSchema,
+    paginationQuerySchema, PaginationQueryInput
 } from "@/dto/threads.dto";
 import { DrizzleClient } from "../db/index";
 import { threads as threadsTable } from "../db/schema/thread.schema";
@@ -156,47 +157,75 @@ export async function threadRoutes(fastify: FastifyInstance) {
 
 
 
-    //reading thread using topic id 
-    fastify.get("/threads/topic/:topicId", async (request, reply) => {
+    //reading all thread using topic id  using pagination
+fastify.get("/threads/topic/:topicId", async (request, reply) => {
+    
+    const params = topicIdParamsSchema.safeParse(request.params);
+    if (!params.success)
+        return reply.status(400).send({ success: false, error: "Invalid topic id" });
 
+    const topicId = params.data.topicId;
+    const query = paginationQuerySchema.safeParse(request.query);
+    if (!query.success)
+        return reply.status(400).send({ success: false, error: "Invalid pagination parameters" });
+    
+    const { page, limit } = query.data;
 
-        //topic ID check
-        const params = topicIdParamsSchema.safeParse(request.params);
-        if (!params.success)
-            return reply.status(400).send({ success: false, error: "Invalid topic id" });
+    const offset = (page - 1) * limit; 
 
-        const topicId = params.data.topicId;
-
-        try {
-            const threads = await DrizzleClient.select({
-                id: threadsTable.id,
-                threadTitle: threadsTable.threadTitle,
-                viewCount: threadsTable.viewCount,
-                createdAt: threadsTable.createdAt,
-                isLocked: threadsTable.isLocked,
-                creatorUsername: usersTable.username,
-            })
-            .from(threadsTable)
-            .where(
-                and(
-                    eq(threadsTable.topicId, topicId),
-                    isNull(threadsTable.deletedAt) 
-                )
+    try {
+        const threads = await DrizzleClient.select({
+            id: threadsTable.id,
+            threadTitle: threadsTable.threadTitle,
+            viewCount: threadsTable.viewCount,
+            createdAt: threadsTable.createdAt,
+            isLocked: threadsTable.isLocked,
+            creatorUsername: usersTable.username,
+        })
+        .from(threadsTable)
+        .where(
+            and(
+                eq(threadsTable.topicId, topicId),
+                isNull(threadsTable.deletedAt) 
             )
-            .leftJoin(usersTable, eq(threadsTable.createdBy, usersTable.id))
-            .orderBy(desc(threadsTable.createdAt));
+        )
+        .leftJoin(usersTable, eq(threadsTable.createdBy, usersTable.id))
+        .orderBy(desc(threadsTable.createdAt))
+        .limit(limit)
+        .offset(offset);
+        const [countResult] = await DrizzleClient.select({
+            count: sql<number>`cast(count(${threadsTable.id}) as integer)`.as('count')
+        })
+        .from(threadsTable)
+        .where(
+            and(
+                eq(threadsTable.topicId, topicId),
+                isNull(threadsTable.deletedAt)
+            )
+        );
+        const totalThreads = countResult?.count ?? 0;
+        const totalPages = Math.ceil(totalThreads / limit);
 
-            return reply.status(200).send({ success: true, threads: threads });
-        } catch (error) {
-            fastify.log.error("Error fetching threads by topic:", error);
-            return reply.status(500).send({
-                error: "Failed to fetch threads",
-                success: false,
-                details: error instanceof Error ? error.message : "Unknown error",
-            });
-        }
-    });
 
+        return reply.status(200).send({ 
+            success: true, 
+            threads: threads,
+            metadata: {
+                totalItems: totalThreads,
+                totalPages: totalPages,
+                currentPage: page,
+                limit: limit,
+            }
+        });
+    } catch (error) {
+        fastify.log.error("Error fetching threads by topic:", error);
+        return reply.status(500).send({
+            error: "Failed to fetch threads",
+            success: false,
+            details: error instanceof Error ? error.message : "Unknown error",
+        });
+    }
+});
 
 
 

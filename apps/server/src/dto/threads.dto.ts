@@ -41,3 +41,22 @@ export const updateThreadSchema = z
         message: "At least one field (threadTitle or topicId) must be provided for update",
     });
 export type UpdateThreadInput = z.infer<typeof updateThreadSchema>;
+
+
+//PAGINATION QUERY SCHEMA 
+const DEFAULT_LIMIT = 25;
+const MAX_LIMIT = 100;
+
+export const paginationQuerySchema = z.object({
+    page: z.preprocess(
+        
+        (val) => (val ? Number(val) : 1),
+        z.number().int().min(1, "Page number must be 1 or greater")
+    ),
+    limit: z.preprocess(
+        (val) => (val ? Number(val) : DEFAULT_LIMIT),
+        z.number().int().min(1, "Limit must be 1 or greater")
+            .max(MAX_LIMIT, `Limit cannot exceed ${MAX_LIMIT}`)
+    ),
+});
+export type PaginationQueryInput = z.infer<typeof paginationQuerySchema>;
