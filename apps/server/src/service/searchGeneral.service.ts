@@ -1,28 +1,27 @@
 import { sql, desc } from "drizzle-orm";
 import { DrizzleClient as db } from "@/db/index";
-
+import { buildSearchParams } from "./searchParam.service";
 import { threads as threadsTable } from "@/db/schema/thread.schema";
 import { topics as topicsTable } from "@/db/schema/topic.schema";
 import { posts as postsTable } from "@/db/schema/post.schema";
 import { buildSearchQuery } from "./buildSearchQuery";
 
 export async function generalSearch(q: string, page = 1) {
-    const limit = 10;
-    const offset = (page - 1) * limit;
-    const prefix = q.split(/\s+/).map(w => w + ":*").join(" & ");
-
-    const tsQuery = sql`plainto_tsquery('english', ${q})`;
-    const prefixQuery = sql`to_tsquery('english', ${prefix})`;
-
-    const tsvThread = sql`to_tsvector('english', thread_title)`;
+       const {
+   limit,
+   offset,
+   tsQuery,
+   prefixQuery,
+   tsv,
+ } = buildSearchParams(q, page);
 
     const threadRows = await buildSearchQuery({
         table: threadsTable,
         titleExpr: sql<string>`${threadsTable.threadTitle}`.as("title"),
-        whereExpr: sql`${tsvThread} @@ ${tsQuery} OR ${tsvThread} @@ ${prefixQuery}`,
+        whereExpr: sql`${tsv} @@ ${tsQuery} OR ${tsv} @@ ${prefixQuery}`,
         scoreExpr: sql`
-            ts_rank_cd(${tsvThread}, ${tsQuery})
-            + 0.5 * ts_rank_cd(${tsvThread}, ${prefixQuery})
+            ts_rank_cd(${tsv}, ${tsQuery})
+            + 0.5 * ts_rank_cd(${tsv}, ${prefixQuery})
         `.as("score"),
         limit: 200,
         offset: 0,
