@@ -25,10 +25,12 @@ export async function searchRoutes(fastify: FastifyInstance) {
 				results: results,
 			});
 		} catch (error) {
-			fastify.log.error({ err: error }, "Full-text search failed");
-			return reply
-				.status(500)
-				.send({ success: false, error: "Search execution failed." });
-		}
+    console.log("SEARCH ERROR:", error);
+    fastify.log.error(error);
+    return reply
+        .status(500)
+        .send({ success: false, error: String(error) });
+}
+
 	});
 }

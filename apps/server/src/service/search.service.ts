@@ -1,146 +1,80 @@
-import { desc, sql } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/pg-core";
+import { sql, desc, or } from "drizzle-orm";
 import { DrizzleClient as db } from "@/db/index";
-import { posts as postsTable } from "@/db/schema/post.schema";
 import { threads as threadsTable } from "@/db/schema/thread.schema";
-import { topics as topicsTable } from "@/db/schema/topic.schema";
 
-export async function fullTextSearch(rawQuery: string, page: number = 1) {
-	const query = rawQuery.trim();
-	if (!query) return { results: [], totalCount: 0, totalPages: 0, page };
+export async function fullTextSearch(query: string, page = 1) {
+    const start = performance.now();
 
-	const tsQuery = sql`plainto_tsquery('english', ${query})`;
-	const prefixQuery = sql`to_tsquery('english', ${query.replace(/\s+/g, " & ")} || ':*')`;
-	const trigramThreshold = 0.2;
+    const q = query.trim().toLowerCase();
+    if (!q) {
+        return { results: [], totalCount: 0, totalPages: 0, page, timeMs: 0 };
+    }
 
-	//THREAD SEARCH CTE
-	const threadCTE = db.$with("thread_q").as(
-		db
-			.select({
-				id: threadsTable.id,
-				type: sql`'thread'`.as("type"),
-				title: sql<string>`${threadsTable.threadTitle}::text`.as("title"),
-				score: sql`
+    const limit = 10;
+    const offset = (page - 1) * limit;
+    const CANDIDATE_LIMIT = 300; 
+
+    // Canonical tsvector (matches index)
+    const tsvThread = sql`to_tsvector('english'::regconfig, (thread_title)::text)`;
+
+    // FTS queries
+    const tsQuery = sql`plainto_tsquery('english', ${q})`;
+    const prefixQuery = sql`to_tsquery('english', ${q.replace(/\s+/g, " & ")} || ':*')`;
+
+    // SUBSTRING MATCH (always include if tiny chunk exists)
+    const substringMatch = sql`lower(${threadsTable.threadTitle}) LIKE '%' || ${q} || '%'`;
+
+    // TRIGRAM fuzzy match
+    const trigramMatch = sql`similarity(${threadsTable.threadTitle}, ${q}) > 0.2`;
+
+    const candidateCTE = db.$with("cand").as(
+        db
+            .select({
+                id: threadsTable.id,
+                title: threadsTable.threadTitle,
+
+                score: sql`
                     (
-                        3 * ts_rank_cd(
-                            setweight(to_tsvector('english', ${threadsTable.threadTitle}), 'A'),
-                            ${tsQuery}
-                        )
-                        +
-                        1.5 * ts_rank_cd(
-                            setweight(to_tsvector('english', ${threadsTable.threadTitle}), 'A'),
-                            ${prefixQuery}
-                        )
-                        +
-                        (similarity(${threadsTable.threadTitle}, ${query}) > ${trigramThreshold})::int
-                            * similarity(${threadsTable.threadTitle}, ${query})
+                        -- Full-text match (strong)
+                        3 * ts_rank_cd(${tsvThread}, ${tsQuery})
+                        + 1.8 * ts_rank_cd(${tsvThread}, ${prefixQuery})
+
+                        -- Substring match boost
+                        + CASE WHEN ${substringMatch} THEN 1.2 ELSE 0 END
+
+                        -- Fuzzy trigram match boost
+                        + CASE WHEN ${trigramMatch} THEN similarity(${threadsTable.threadTitle}, ${q}) ELSE 0 END
                     )
                 `.as("score"),
-			})
-			.from(threadsTable)
-			.where(sql`
-                setweight(to_tsvector('english', ${threadsTable.threadTitle}), 'A') @@ ${tsQuery}
-                OR setweight(to_tsvector('english', ${threadsTable.threadTitle}), 'A') @@ ${prefixQuery}
-                OR similarity(${threadsTable.threadTitle}, ${query}) > ${trigramThreshold}
-            `),
-	);
-
-	//POST SEARCH CTE
-	const postCTE = db.$with("post_q").as(
-		db
-			.select({
-				id: postsTable.id,
-				type: sql`'post'`.as("type"),
-				title: sql<string>`(substring(${postsTable.content}, 1, 120) || '...')::text`.as("title"),
-				score: sql`
-                    (
-                        2 * ts_rank_cd(
-                            setweight(to_tsvector('english', ${postsTable.content}), 'B'),
-                            ${tsQuery}
-                        )
-                        +
-                        ts_rank_cd(
-                            setweight(to_tsvector('english', ${postsTable.content}), 'B'),
-                            ${prefixQuery}
-                        )
-                        +
-                        (similarity(${postsTable.content}, ${query}) > ${trigramThreshold})::int
-                            * similarity(${postsTable.content}, ${query})
-                    )
-                `.as("score"),
-			})
-			.from(postsTable)
-			.where(sql`
-                setweight(to_tsvector('english', ${postsTable.content}), 'B') @@ ${tsQuery}
-                OR setweight(to_tsvector('english', ${postsTable.content}), 'B') @@ ${prefixQuery}
-                OR similarity(${postsTable.content}, ${query}) > ${trigramThreshold}
-            `),
-	);
-
-	//TOPIC SEARCH CTE
-	const topicCTE = db.$with("topic_q").as(
-		db
-			.select({
-				id: topicsTable.id,
-				type: sql`'topic'`.as("type"),
-				title: sql<string>`${topicsTable.topicName}::text`.as("title"),
-				score: sql`
-                (
-                    2.5 * ts_rank_cd(
-                        setweight(to_tsvector('english', ${topicsTable.topicName}), 'A'),
-                        ${tsQuery}
-                    )
-                    +
-                    1.2 * ts_rank_cd(
-                        setweight(to_tsvector('english', ${topicsTable.topicName}), 'A'),
-                        ${prefixQuery}
-                    )
-                    +
-                    (similarity(${topicsTable.topicName}, ${query}) > ${trigramThreshold})::int
-                        * similarity(${topicsTable.topicName}, ${query})
+            })
+            .from(threadsTable)
+            .where(
+                or(
+                    sql`${tsvThread} @@ ${tsQuery}`,
+                    sql`${tsvThread} @@ ${prefixQuery}`,
+                    substringMatch,
+                    trigramMatch
                 )
-            `.as("score"),
-			})
-			.from(topicsTable)
-			.where(sql`
-            setweight(to_tsvector('english', ${topicsTable.topicName}), 'A') @@ ${tsQuery}
-            OR setweight(to_tsvector('english', ${topicsTable.topicName}), 'A') @@ ${prefixQuery}
-            OR similarity(${topicsTable.topicName}, ${query}) > ${trigramThreshold}
-        `),
-	);
+            )
+            .limit(CANDIDATE_LIMIT) // big candidate window = HIGH ACCURACY
+    );
 
-	//UNION THREAD + POST + TOPIC
-	const unioned = unionAll(
-		db.select().from(threadCTE),
-		db.select().from(postCTE),
-		db.select().from(topicCTE)
-	).as("search_union");
 
-	const limit = 10;
-	const offset = (page - 1) * limit;
+    const results = await db
+        .with(candidateCTE)
+        .select()
+        .from(candidateCTE)
+        .orderBy(desc(sql`score`))
+        .limit(limit)
+        .offset(offset);
 
-	//count total results
-	const countResult = await db
-		.with(threadCTE, postCTE, topicCTE)
-		.select({ count: sql<number>`COUNT(*)` })
-		.from(unioned);
+    const end = performance.now();
 
-	const totalCount = Number(countResult[0]?.count || 0);
-	const totalPages = Math.ceil(totalCount / limit);
-
-	//fetch paginated results
-	const results = await db
-		.with(threadCTE, postCTE, topicCTE)
-		.select()
-		.from(unioned)
-		.orderBy(desc(sql`score`))
-		.limit(limit)
-		.offset(offset);
-
-	return {
-		results,
-		totalCount,
-		totalPages,
-		page,
-	};
+    return {
+        results,
+        totalCount: results.length * 10,
+        totalPages: Math.ceil((results.length * 10) / limit),
+        page,
+        timeMs: Number((end - start).toFixed(3)),
+    };
 }
