@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import { count, eq } from "drizzle-orm";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { DrizzleClient } from "@/db/index";
 import { topics as topicsTable } from "@/db/schema/topic.schema";
 import { users as usersTable } from "@/db/schema/user.schema";
@@ -8,7 +8,7 @@ import {
 	topicIdParamsSchema,
 	updateTopicSchema,
 } from "@/dto/topics.dto";
-import { authenticateUser } from "./auth";
+import { attachUser, authenticateUser } from "./auth";
 
 export async function topicRoutes(fastify: FastifyInstance) {
 
