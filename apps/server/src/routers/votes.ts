@@ -1,61 +1,55 @@
-import { eq, sql } from "drizzle-orm";
-import { DrizzleClient as db } from "@/db/index";
-import { posts as postsTable } from "@/db/schema/post.schema";
-import { votes as votesTable } from "@/db/schema/votes.schema";
-import type { VotePayloadInput } from "@/dto/votes.dto";
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { handlePostVote } from "@/service/vote.service";
+import { attachUser, authenticateUser } from "./auth";
 
-export async function handlePostVote(
-	postId: string,
-	userId: string,
-	voteValue: VotePayloadInput["voteValue"],
-) {
-	return db.transaction(async (tx) => {
-		//Find the existing votes
-		const existingVote = await tx
-			.select()
-			.from(votesTable)
-			.where(
-				sql`${votesTable.postId} = ${postId} AND ${votesTable.userId} = ${userId}`,
-			)
-			.limit(1);
+type VoteParams = {
+  postId: string;
+};
 
-		const oldVoteValue = existingVote[0]?.value || 0;
+type VoteBody = {
+  voteValue: 1 | -1 | 0;
+};
 
-		//Changing upvote (1) to downvote (-1) results in a delta of -2 (-1 - 1)
-		const delta = voteValue - oldVoteValue;
-		if (voteValue === 0) {
-			//delete if 0
-			await tx
-				.delete(votesTable)
-				.where(
-					sql`${votesTable.postId} = ${postId} AND ${votesTable.userId} = ${userId}`,
-				);
-		} else {
-			//insert new vote
-			await tx
-				.insert(votesTable)
-				.values({ postId: postId, userId: userId, value: voteValue })
-				.onConflictDoUpdate({
-					target: [votesTable.userId, votesTable.postId],
-					set: { value: voteValue },
-				});
-		}
+export async function voteRoutes(fastify: FastifyInstance) {
+  fastify.post<{
+    Params: VoteParams;
+    Body: VoteBody;
+  }>(
+    "/posts/:postId/vote",
+    {
+      preHandler: [authenticateUser, attachUser],
+      schema: {
+        params: z.object({
+          postId: z.string().uuid(),
+        }),
+        body: z.object({
+          voteValue: z.union([
+            z.literal(1),
+            z.literal(-1),
+            z.literal(0),
+          ]),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { postId } = request.params;  
+      const { voteValue } = request.body; 
+      const userId = request.userId;
 
-		// update total post in post table
-		const [updatedPost] = await tx
-			.update(postsTable)
-			.set({
-				vote: sql`${postsTable.vote} + ${delta}`,
-			})
-			.where(eq(postsTable.id, postId))
-			.returning();
+      if (!userId) {
+             return reply.code(401).send({ error: "Unauthorized" });
+        }
+      const updatedPost = await handlePostVote(
+        postId,
+        userId,
+        voteValue
+      );
 
-		if (!updatedPost) {
-			//roll back if no transaction
-			tx.rollback();
-			throw new Error("Post not found or failed to update vote count.");
-		}
-
-		return updatedPost;
-	});
+      return reply.send({
+        success: true,
+        data: updatedPost,
+      });
+    }
+  );
 }
